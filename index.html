@@ -57,10 +57,11 @@ h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 
 .ctl-val { font-family: var(--font-display); font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; }
 input[type="range"] { width: 100%; margin: 2px 0; accent-color: var(--s1); }
 .hint { margin: 0; font-size: 13px; color: var(--muted); }
-.meter { position: relative; height: 8px; border-radius: 4px; background: var(--grid); }
-.meter .used { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--s1); }
-.meter.over .used { background: var(--crit); }
-.meter .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--ink-2); }
+.scale { position: relative; height: 16px; font-size: 12px; line-height: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.scale span { position: absolute; top: 0; white-space: nowrap; }
+.scale .s0 { left: 0; }
+.scale .s100 { right: 0; }
+.scale .sT { transform: translateX(-50%); color: var(--ink-2); }
 
 .toggles { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; border-top: 1px solid var(--line); padding-top: 16px; }
 .group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -171,8 +172,8 @@ th:first-child, td:first-child { text-align: left; }
     <div class="sliders">
       <div class="ctl">
         <div class="ctl-head"><label class="ctl-name" for="fill">How full blocks are</label><output class="ctl-val" id="fillOut" for="fill">60%</output></div>
-        <input type="range" id="fill" min="0" max="150" step="1" value="60">
-        <div class="meter" id="meter" aria-hidden="true"><span class="used" id="meterUsed"></span><span class="tick" id="meterTick"></span></div>
+        <input type="range" id="fill" min="0" max="100" step="1" value="60" aria-describedby="fillHint">
+        <div class="scale" aria-hidden="true"><span class="s0" id="scale0">0%</span><span class="sT" id="scaleT">Target 50%</span><span class="s100" id="scale100">100%</span></div>
         <p class="hint" id="fillHint"></p>
       </div>
       <div class="ctl">
@@ -398,12 +399,11 @@ function update() {
 function renderControls() {
   const { p, p99 } = R, L = p.limit;
   $('fillOut').textContent = p.fill + '%';
-  $('fillHint').textContent = p.fill <= 100
-    ? `${fmtGas(L * p.fill / 100)} of ${fmtGas(L)} gas used each block, ${100 - p.fill}% left. Target is ${p.target}%.`
-    : `Demand is ${p.fill}% of capacity. The extra ${p.fill - 100}% waits in a queue for later blocks.`;
-  $('meterUsed').style.width = Math.min(100, p.fill) + '%';
-  $('meterTick').style.left = `calc(${p.target}% - 1px)`;
-  $('meter').classList.toggle('over', p.fill > 100);
+  $('fillHint').textContent = `${fmtGas(L * p.fill / 100)} of ${fmtGas(L)} gas used each block, ${100 - p.fill}% left. The fee rises above the target and falls below it.`;
+  $('scaleT').textContent = `Target ${+p.target.toFixed(2)}%`;
+  $('scaleT').style.left = p.target + '%';
+  $('scale0').hidden = p.target < 15;
+  $('scale100').hidden = p.target > 85;
   $('spikeOut').textContent = p.spike === 0 ? 'Steady' : p.spike <= 25 ? 'Mild' : p.spike <= 60 ? 'Bursty' : 'Very spiky';
   $('spikeHint').textContent = p.spike === 0 ? 'Every block gets the same load.' : `Same average, but the busiest 1% of blocks get ${p99.toFixed(1)}× the usual load.`;
   $('limitOut').textContent = fmtGas(L);
@@ -438,8 +438,7 @@ function renderTiles() {
   const rate = Math.min(p.fill, 100) / 100 * L / BT;
   let maxBack = 0; for (let i = 0; i < n; i++) maxBack = Math.max(maxBack, run.back[i]);
   $('t4v').textContent = fmtGas(rate) + ' gas/s';
-  const q = p.fill > 100 ? `queue keeps growing, ${fmtDur(maxBack / L * BT)} wait by the end`
-    : maxBack > 0 ? `longest queue ${fmtDur(maxBack / L * BT)}` : 'no queue';
+  const q = maxBack > 0 ? `longest queue ${fmtDur(maxBack / L * BT)}` : 'no queue';
   $('t4s').textContent = `≈ ${fmtInt(rate / p.txgas)} transfers/s · ${q}`;
 }
 
