@@ -1,0 +1,647 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Arc Fee Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: one 1080px column. Controls band, summary tiles, two stacked charts on a shared time axis, then the formula. */
+:root {
+  --bg: #F3F6FA; --surface: #FFFFFF; --ink: #0E1726; --ink-2: #47546A; --muted: #6F7C92;
+  --grid: #E6EBF2; --axis: #C3CCD9; --line: rgba(14,23,38,.10);
+  --accent: #2F63A8; --s1: #3E74BB; --s2: #E0612A; --ghost: #A3ADBC; --band: rgba(62,116,187,.16);
+  --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0A101C; --surface: #111A2B; --ink: #E7ECF4; --ink-2: #AEB8C8; --muted: #8592A7;
+    --grid: #1D283B; --axis: #33415A; --line: rgba(255,255,255,.10);
+    --accent: #9BBBEA; --s1: #5A8BD6; --s2: #E0703A; --ghost: #5D697D; --band: rgba(90,139,214,.24);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0A101C; --surface: #111A2B; --ink: #E7ECF4; --ink-2: #AEB8C8; --muted: #8592A7;
+  --grid: #1D283B; --axis: #33415A; --line: rgba(255,255,255,.10);
+  --accent: #9BBBEA; --s1: #5A8BD6; --s2: #E0703A; --ghost: #5D697D; --band: rgba(90,139,214,.24);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.page {
+  max-width: 1080px; margin: 0 auto; display: grid; gap: 20px;
+  padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.intro { display: grid; gap: 6px; }
+.eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4.2vw, 36px); letter-spacing: -0.015em; line-height: 1.1; margin: 0; text-wrap: balance; }
+.intro p.lead { margin: 4px 0 0; color: var(--ink-2); max-width: 66ch; }
+.intro p.src { margin: 0; font-size: 13px; color: var(--muted); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; min-width: 0; }
+
+/* Controls */
+.controls { display: grid; gap: 18px; }
+.sliders { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.ctl { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.ctl-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ctl-name { font-weight: 600; font-size: 14px; }
+.ctl-val { font-family: var(--font-display); font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; margin: 2px 0; accent-color: var(--s1); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); }
+.meter { position: relative; height: 8px; border-radius: 4px; background: var(--grid); }
+.meter .used { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--s1); }
+.meter.over .used { background: var(--crit); }
+.meter .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; border-radius: 1px; background: var(--ink-2); }
+
+.toggles { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: center; border-top: 1px solid var(--line); padding-top: 16px; }
+.group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.glabel { font-size: 13px; color: var(--ink-2); }
+.seg { position: relative; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; gap: 2px; background: var(--bg); }
+.seg input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.seg label { padding: 4px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--ink-2); white-space: nowrap; }
+.seg label:hover { color: var(--ink); }
+.seg input:checked + label { background: var(--ink); color: var(--surface); }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 1px; }
+.btn { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+.btn:hover:not(:disabled) { background: var(--bg); }
+.btn:disabled { opacity: .45; cursor: default; }
+.toggles .btn { margin-left: auto; }
+
+.adv { border-top: 1px solid var(--line); padding-top: 14px; }
+.adv summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.adv summary .muted { font-weight: 400; color: var(--muted); }
+.params { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin-top: 14px; }
+.params label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-2); min-width: 0; }
+.params input { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--axis); border-radius: 6px; background: var(--bg); color: var(--ink); width: 100%; font-variant-numeric: tabular-nums; }
+.adv-foot { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-top: 12px; }
+
+/* Summary tiles */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+.tile .lab { font-size: 13px; color: var(--ink-2); }
+.tile .val { font-size: 26px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.tile .sub { font-size: 13px; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 6px; justify-self: start; margin-top: 4px; font-size: 12px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px 2px 7px; }
+.chip i { display: inline-block; width: 9px; height: 9px; background: var(--good); border-radius: 50%; }
+.chip.up i { background: var(--warn); border-radius: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.chip.down i { background: var(--good); border-radius: 0; clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.chip.cap i { background: var(--crit); border-radius: 2px; }
+
+/* Charts */
+.charts { position: relative; display: grid; gap: 28px; }
+.chart { display: grid; gap: 10px; min-width: 0; }
+.chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 20px; }
+.chart-head h2 { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin: 0; }
+.chart-head p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
+.key { display: inline-flex; align-items: center; gap: 6px; }
+i.ln, i.sw, i.blank { display: inline-block; flex: none; }
+i.ln { width: 16px; height: 2px; border-radius: 1px; background: var(--s1); }
+i.ln.ghost { background: var(--ghost); }
+i.ln.s2 { background: var(--s2); }
+i.ln.ref { background: var(--ink-2); height: 1px; }
+i.sw { width: 12px; height: 10px; border-radius: 2px; background: var(--band); box-shadow: inset 0 0 0 1px var(--s1); }
+i.blank { width: 16px; }
+.plot { position: relative; width: 100%; outline: none; touch-action: pan-y; cursor: crosshair; }
+.plot:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
+.plot svg { display: block; }
+.plot text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.plot .gl { stroke: var(--grid); stroke-width: 1; }
+.plot .refl { stroke: var(--axis); stroke-width: 1; }
+.plot .ref { stroke: var(--ink-2); stroke-width: 1; }
+.plot .fee { stroke: var(--s1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.plot .ghost { stroke: var(--ghost); stroke-width: 1.5; fill: none; stroke-linejoin: round; }
+.plot .band { fill: var(--band); }
+.plot .mean { stroke: var(--s1); stroke-width: 1; fill: none; opacity: .75; }
+.plot .smooth { stroke: var(--s2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.plot .xh { stroke: var(--ink-2); stroke-width: 1; }
+.plot .dot { fill: var(--s1); stroke: var(--surface); stroke-width: 2; }
+.plot .lbl { fill: var(--ink-2); }
+.plot .end { fill: var(--ink); font-size: 12px; font-weight: 600; }
+
+.tip { position: absolute; z-index: 2; pointer-events: none; min-width: 190px; background: var(--surface); border: 1px solid var(--axis); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 8px 24px rgba(10,16,28,.14); display: grid; gap: 3px; }
+.tip .t { color: var(--muted); margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+.tip .row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.tip .row span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.tip .row b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* How it works */
+.how { display: grid; gap: 14px; }
+.how h2 { font-family: var(--font-display); font-size: 18px; font-weight: 600; margin: 0; }
+.how pre { margin: 0; font-family: var(--font-mono); font-size: 13px; line-height: 1.7; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; color: var(--ink); }
+.how ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--ink-2); max-width: 75ch; }
+.how details summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+.tablewrap { overflow-x: auto; margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 600; color: var(--ink-2); }
+th:first-child, td:first-child { text-align: left; }
+
+@media (max-width: 820px) {
+  .sliders { grid-template-columns: 1fr; gap: 20px; }
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .params { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .toggles .btn { margin-left: 0; }
+}
+@media (max-width: 480px) {
+  .card { padding: 16px; }
+  .params { grid-template-columns: 1fr; }
+  .tile .val { font-size: 22px; }
+}
+</style>
+
+<main class="page">
+  <header class="intro">
+    <p class="eyebrow">Arc mainnet · fee market</p>
+    <h1>Arc Fee Simulator</h1>
+    <p class="lead">See how the base fee climbs when blocks run fuller than the target. Set how full blocks are, how spiky traffic is, and the gas limit per block. Defaults are Arc mainnet settings, with a new block every 0.5 seconds.</p>
+    <p class="src">Follows <a href="https://docs.arc.io/arc/concepts/stable-fee-design" target="_blank" rel="noopener">Stable fee design</a> and the node's <a href="https://github.com/circlefin/arc-node/blob/main/crates/execution-config/src/gas_fee.rs" target="_blank" rel="noopener">fee calculation code</a>.</p>
+  </header>
+
+  <section class="card controls" aria-label="Traffic settings">
+    <div class="sliders">
+      <div class="ctl">
+        <div class="ctl-head"><label class="ctl-name" for="fill">How full blocks are</label><output class="ctl-val" id="fillOut" for="fill">60%</output></div>
+        <input type="range" id="fill" min="0" max="150" step="1" value="60">
+        <div class="meter" id="meter" aria-hidden="true"><span class="used" id="meterUsed"></span><span class="tick" id="meterTick"></span></div>
+        <p class="hint" id="fillHint"></p>
+      </div>
+      <div class="ctl">
+        <div class="ctl-head"><label class="ctl-name" for="spike">Spikiness</label><output class="ctl-val" id="spikeOut" for="spike">Bursty</output></div>
+        <input type="range" id="spike" min="0" max="100" step="1" value="30">
+        <p class="hint" id="spikeHint"></p>
+      </div>
+      <div class="ctl">
+        <div class="ctl-head"><label class="ctl-name" for="limit">Gas per block</label><output class="ctl-val" id="limitOut" for="limit">30M</output></div>
+        <input type="range" id="limit" min="10" max="200" step="1" value="30">
+        <p class="hint" id="limitHint"></p>
+      </div>
+    </div>
+
+    <div class="toggles">
+      <div class="group">
+        <span class="glabel" id="durL">Run for</span>
+        <div class="seg" role="radiogroup" aria-labelledby="durL">
+          <input type="radio" name="dur" id="d1" value="1"><label for="d1">1 min</label>
+          <input type="radio" name="dur" id="d5" value="5"><label for="d5">5 min</label>
+          <input type="radio" name="dur" id="d15" value="15" checked><label for="d15">15 min</label>
+          <input type="radio" name="dur" id="d60" value="60"><label for="d60">60 min</label>
+        </div>
+      </div>
+      <div class="group">
+        <span class="glabel" id="unitL">Show fee as</span>
+        <div class="seg" role="radiogroup" aria-labelledby="unitL">
+          <input type="radio" name="unit" id="uUsd" value="usd" checked><label for="uUsd">$ per transfer</label>
+          <input type="radio" name="unit" id="uGwei" value="gwei"><label for="uGwei">Gwei</label>
+        </div>
+      </div>
+      <div class="group">
+        <span class="glabel" id="scaleL">Scale</span>
+        <div class="seg" role="radiogroup" aria-labelledby="scaleL">
+          <input type="radio" name="scale" id="sLog" value="log" checked><label for="sLog">Log</label>
+          <input type="radio" name="scale" id="sLin" value="linear"><label for="sLin">Linear</label>
+        </div>
+      </div>
+      <button type="button" class="btn" id="reroll">New spike pattern</button>
+    </div>
+
+    <details class="adv" id="adv">
+      <summary>Fee parameters <span class="muted">(mainnet defaults)</span></summary>
+      <div class="params">
+        <label>Weight on the newest block (%)<input type="number" id="alpha" min="1" max="100" step="1" value="20"></label>
+        <label>Adjustment rate, k (% per block)<input type="number" id="krate" min="0.01" max="10" step="0.01" value="2"></label>
+        <label>Target fullness (%)<input type="number" id="target" min="1" max="90" step="1" value="50"></label>
+        <label>Fee floor (gwei)<input type="number" id="minfee" min="1" max="20000" step="1" value="20"></label>
+        <label>Fee cap (gwei)<input type="number" id="maxfee" min="1" max="20000" step="1" value="20000"></label>
+        <label>Gas per ERC-20 transfer<input type="number" id="txgas" min="21000" max="1000000" step="1000" value="50000"></label>
+      </div>
+      <div class="adv-foot">
+        <p class="hint">Allowed ranges match the mainnet chainspec bounds. Values outside them are pulled back in.</p>
+        <button type="button" class="btn" id="reset">Reset to mainnet</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="tiles" aria-label="Summary">
+    <div class="tile"><span class="lab" id="t1l">Fee after 15 min</span><span class="val" id="t1v"></span><span class="sub" id="t1s"></span><span class="chip" id="t1c"><i></i><span></span></span></div>
+    <div class="tile"><span class="lab">Fee doubles every</span><span class="val" id="t2v"></span><span class="sub" id="t2s"></span></div>
+    <div class="tile"><span class="lab" id="t3l">Reaches the cap</span><span class="val" id="t3v"></span><span class="sub" id="t3s"></span></div>
+    <div class="tile"><span class="lab">Traffic</span><span class="val" id="t4v"></span><span class="sub" id="t4s"></span></div>
+  </section>
+
+  <section class="card charts" id="charts" aria-label="Charts">
+    <div class="chart">
+      <div class="chart-head">
+        <div><h2 id="feeTitle">Cost of an ERC-20 transfer</h2><p id="feeSub"></p></div>
+        <div class="legend" id="feeLegend">
+          <span class="key"><i class="ln"></i>With spikes</span>
+          <span class="key"><i class="ln ghost"></i>Same average, no spikes</span>
+        </div>
+      </div>
+      <div class="plot" id="feePlot" tabindex="0" role="img" aria-label="Fee over time"></div>
+    </div>
+    <div class="chart">
+      <div class="chart-head">
+        <div><h2>How full each block is</h2><p>Gas used as a share of the block limit. The fee follows the smoothed line.</p></div>
+        <div class="legend">
+          <span class="key"><i class="sw"></i>Gas used per block</span>
+          <span class="key"><i class="ln s2"></i>Smoothed average</span>
+          <span class="key"><i class="ln ref"></i>Target</span>
+        </div>
+      </div>
+      <div class="plot" id="trafPlot" tabindex="0" role="img" aria-label="Block fullness over time"></div>
+    </div>
+    <div class="tip" id="tip" hidden></div>
+  </section>
+
+  <section class="card how" aria-label="How the fee moves">
+    <h2>How the fee moves</h2>
+<pre><code>every block (0.5 s):
+  smoothed = <span id="hA">80</span>% × previous smoothed + <span id="hB">20</span>% × gas used in this block
+  target   = <span id="hT">50</span>% of the block gas limit
+  next fee = fee × (1 + <span id="hK">2</span>% × (smoothed − target) ÷ target)
+  next fee is held between <span id="hLo">20</span> and <span id="hHi">20,000</span> gwei</code></pre>
+    <ul>
+      <li>Traffic stays at the level you set even as fees climb, so each curve is the fastest the fee can rise at that fullness. Real users would send less as fees rise.</li>
+      <li>Demand beyond a block's capacity waits for the next block. Spikes show up first as short queues, and only move the fee if they last long enough to lift the smoothed average.</li>
+      <li>A transfer is priced at <span id="hGas">50,000</span> gas, which is what the docs' ~$0.001 floor figure implies. Fees are paid in USDC, and the base fee goes to the block producer instead of being burned.</li>
+      <li>Defaults are the mainnet fee settings read onchain on Nov 12, 2026, plus the 30M gas limit from the docs. Each run starts at the fee floor.</li>
+    </ul>
+    <details id="tbl">
+      <summary>Data table</summary>
+      <div class="tablewrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+    </details>
+  </section>
+</main>
+
+<script>
+(() => {
+'use strict';
+const BT = 0.5, MAXN = 7200;
+const DEF = { alpha: 20, krate: 2, target: 50, minfee: 20, maxfee: 20000, txgas: 50000 };
+const LIM = { alpha: [1, 100], krate: [0.01, 10], target: [1, 90], minfee: [1, 20000], maxfee: [1, 20000], txgas: [21000, 1000000] };
+const $ = id => document.getElementById(id);
+const S = { seed: 7, hover: null };
+let R = null;
+const G = {};
+
+/* ---------- traffic and fee model ---------- */
+function rng(a) {
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+// Per-block demand multipliers: lognormal noise correlated over ~5 s, mean 1.
+function spikes(seed, spike) {
+  const m = new Float64Array(MAXN);
+  if (spike <= 0) { m.fill(1); return m; }
+  const cv = 2 * spike / 100, s2 = Math.log(1 + cv * cv), s = Math.sqrt(s2);
+  const phi = 0.9, inn = Math.sqrt(1 - phi * phi) * s, r = rng(seed * 9973 + 1);
+  const g = () => { let u = 0; while (u === 0) u = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); };
+  let x = g() * s;
+  for (let i = 0; i < MAXN; i++) { x = phi * x + inn * g(); m[i] = Math.exp(x - s2 / 2); }
+  return m;
+}
+// Mirrors arc-node gas_fee.rs: EMA of gas used, then EIP-1559 style step, then clamp.
+function simulate(p, mult) {
+  const n = mult.length, L = p.limit, tgt = L * p.target / 100, den = tgt * 10000 / (p.krate * 100);
+  const lo = p.minfee * 1e9, hi = p.maxfee * 1e9, per = L * p.fill / 100;
+  const fee = new Float64Array(n), used = new Float64Array(n), smo = new Float64Array(n), back = new Float64Array(n);
+  let sm = tgt, bf = lo, q = 0;
+  for (let i = 0; i < n; i++) {
+    q += per * mult[i];
+    const inc = Math.min(L, q); q -= inc; if (q < 1) q = 0;
+    fee[i] = bf; used[i] = inc; back[i] = q;
+    sm = Math.floor(((100 - p.alpha) * sm + p.alpha * inc) / 100);
+    smo[i] = sm;
+    if (sm > tgt) bf += Math.max(1, Math.floor(bf * (sm - tgt) / den));
+    else if (sm < tgt) bf -= Math.floor(bf * (tgt - sm) / den);
+    bf = Math.min(Math.max(bf, lo), hi);
+  }
+  return { fee, used, smo, back };
+}
+
+/* ---------- inputs ---------- */
+function readNum(id) {
+  const [a, b] = LIM[id]; let v = parseFloat($(id).value);
+  if (!isFinite(v)) v = DEF[id];
+  return Math.min(b, Math.max(a, v));
+}
+function params() {
+  const p = {
+    fill: +$('fill').value, spike: +$('spike').value, limit: +$('limit').value * 1e6,
+    minutes: +document.querySelector('input[name="dur"]:checked').value,
+    unit: document.querySelector('input[name="unit"]:checked').value,
+    scale: document.querySelector('input[name="scale"]:checked').value
+  };
+  for (const id of Object.keys(DEF)) p[id] = readNum(id);
+  p.alpha = Math.round(p.alpha); p.txgas = Math.round(p.txgas);
+  if (p.maxfee < p.minfee) p.maxfee = p.minfee;
+  return p;
+}
+
+/* ---------- formatting ---------- */
+const fmtInt = v => Math.round(v).toLocaleString('en-US');
+const pct = x => Math.round(x * 100) + '%';
+function fmtUsd(v) {
+  if (v < 0.001) return '$' + v.toPrecision(2);
+  if (v >= 0.00995 && v < 0.0995) return '$' + v.toFixed(3);
+  if (v >= 0.0995) return '$' + v.toFixed(2);
+  return '$' + v.toFixed(4).replace(/(\.\d{3}\d*?)0+$/, '$1');
+}
+function fmtGwei(g) { return g >= 100 ? fmtInt(g) : (Math.round(g * 10) / 10).toLocaleString('en-US', { maximumFractionDigits: 1 }); }
+function fmtGas(g) { if (g >= 1e6) { const v = g / 1e6; return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + 'M'; } return Math.round(g / 1e3) + 'K'; }
+function fmtDur(s) {
+  if (s < 10) return (Math.round(s * 10) / 10) + ' s';
+  if (s < 90) return Math.round(s) + ' s';
+  if (s < 5400) { const m = s / 60; return (m < 10 ? Math.round(m * 10) / 10 : Math.round(m)) + ' min'; }
+  if (s < 172800) return (Math.round(s / 360) / 10) + ' h';
+  return (Math.round(s / 8640) / 10) + ' days';
+}
+function fmtClock(sec) { return Math.floor(sec / 60) + ':' + String(Math.floor(sec % 60)).padStart(2, '0'); }
+function tickUsd(v) { return v < 0.001 ? '$' + v.toPrecision(1) : v < 0.01 ? '$' + v.toFixed(3) : '$' + v.toFixed(2); }
+function tickGwei(v) { return v >= 1000 ? (+(v / 1000).toPrecision(3)) + 'K' : String(+v.toPrecision(3)); }
+function niceNum(x) { const e = Math.pow(10, Math.floor(Math.log10(x))), f = x / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e; }
+function logTicks(lo, hi, ph) {
+  const all = [];
+  for (let e = Math.floor(Math.log10(lo)) - 1; e <= Math.ceil(Math.log10(hi)) + 1; e++)
+    for (const d of [1, 2, 5]) { const v = +(d * Math.pow(10, e)).toPrecision(6); if (v >= lo * 0.999 && v <= hi * 1.001) all.push({ v, d }); }
+  const fit = ph / 22;
+  if (all.length <= fit) return all.map(t => t.v);
+  const f = all.filter(t => t.d !== 2); if (f.length <= fit) return f.map(t => t.v);
+  return all.filter(t => t.d === 1).map(t => t.v);
+}
+function linTicks(top) { const st = niceNum(top / 4), out = []; for (let v = 0; v <= top * 1.0001; v += st) out.push(+v.toPrecision(6)); return out; }
+function xTicks(total) { const st = [5, 10, 15, 30, 60, 120, 180, 300, 600, 900, 1200].find(s => total / s <= 6) || 1800; const out = []; for (let t = 0; t <= total + 1e-9; t += st) out.push(t); return { st, out }; }
+function fmtTick(t, st) { if (t === 0) return '0'; return st < 60 ? t + 's' : (t / 60) + ' min'; }
+
+/* ---------- render ---------- */
+function update() {
+  const p = params(), n = Math.round(p.minutes * 60 / BT);
+  const raw = spikes(S.seed, p.spike), mult = new Float64Array(n);
+  let sum = 0; for (let i = 0; i < n; i++) sum += raw[i];
+  for (let i = 0; i < n; i++) mult[i] = raw[i] / (sum / n);
+  const run = simulate(p, mult), base = p.spike > 0 ? simulate(p, new Float64Array(n).fill(1)) : null;
+  const sorted = Array.from(mult).sort((a, b) => a - b);
+  R = { p, n, run, base, p99: sorted[Math.floor(0.99 * (n - 1))] };
+  renderControls(); renderTiles(); renderCharts(); renderHow();
+  if ($('tbl').open) renderTable();
+}
+
+function renderControls() {
+  const { p, p99 } = R, L = p.limit;
+  $('fillOut').textContent = p.fill + '%';
+  $('fillHint').textContent = p.fill <= 100
+    ? `${fmtGas(L * p.fill / 100)} of ${fmtGas(L)} gas used each block, ${100 - p.fill}% left. Target is ${p.target}%.`
+    : `Demand is ${p.fill}% of capacity. The extra ${p.fill - 100}% waits in a queue for later blocks.`;
+  $('meterUsed').style.width = Math.min(100, p.fill) + '%';
+  $('meterTick').style.left = `calc(${p.target}% - 1px)`;
+  $('meter').classList.toggle('over', p.fill > 100);
+  $('spikeOut').textContent = p.spike === 0 ? 'Steady' : p.spike <= 25 ? 'Mild' : p.spike <= 60 ? 'Bursty' : 'Very spiky';
+  $('spikeHint').textContent = p.spike === 0 ? 'Every block gets the same load.' : `Same average, but the busiest 1% of blocks get ${p99.toFixed(1)}× the usual load.`;
+  $('limitOut').textContent = fmtGas(L);
+  $('limitHint').textContent = 'Mainnet is 30M. Changes how much traffic a given fullness means, not the shape of the fee curve.';
+  $('reroll').disabled = p.spike === 0;
+}
+
+function growth(p) { const u = Math.min(p.fill / 100, 1), T = p.target / 100; return (p.krate / 100) * (u - T) / T; }
+
+function renderTiles() {
+  const { p, n, run } = R, L = p.limit, lo = p.minfee * 1e9, hi = p.maxfee * 1e9;
+  const end = run.fee[n - 1], usd = w => fmtUsd(w * p.txgas / 1e18);
+  $('t1l').textContent = `Fee after ${p.minutes} min`;
+  if (p.unit === 'usd') { $('t1v').textContent = usd(end); $('t1s').textContent = `per ERC-20 transfer · ${fmtGwei(end / 1e9)} gwei`; }
+  else { $('t1v').textContent = fmtGwei(end / 1e9) + ' gwei'; $('t1s').textContent = `${usd(end)} per ERC-20 transfer`; }
+  const prev = run.fee[Math.max(0, n - 21)], chip = $('t1c');
+  let st = 'floor', label = 'At the floor';
+  if (end >= hi * 0.999) { st = 'cap'; label = 'At the cap'; }
+  else if (end > lo * 1.001) { if (end > prev) { st = 'up'; label = 'Rising'; } else if (end < prev) { st = 'down'; label = 'Falling'; } else { st = 'floor'; label = 'Holding'; } }
+  chip.className = 'chip ' + st; chip.querySelector('span').textContent = label;
+
+  const g = growth(p);
+  if (g > 1e-9) { $('t2v').textContent = fmtDur(Math.log(2) / Math.log(1 + g) * BT); $('t2s').textContent = `+${(g * 100).toFixed(2)}% per block on average`; }
+  else { $('t2v').textContent = 'No rise'; $('t2s').textContent = `Blocks average at or under the ${p.target}% target` + (p.spike > 0 ? '. Spikes can nudge it off the floor.' : '.'); }
+
+  $('t3l').textContent = `Reaches the ${fmtGwei(p.maxfee)} gwei cap`;
+  let ci = -1; for (let i = 0; i < n; i++) if (run.fee[i] >= hi * 0.999) { ci = i; break; }
+  if (ci >= 0) { $('t3v').textContent = fmtDur(ci * BT); $('t3s').textContent = `${usd(hi)} per transfer from then on`; }
+  else if (g > 1e-9) { $('t3v').textContent = '≈ ' + fmtDur(Math.log(hi / lo) / Math.log(1 + g) * BT); $('t3s').textContent = 'Past the end of this run, if traffic holds'; }
+  else { $('t3v').textContent = 'Never'; $('t3s').textContent = 'Traffic is at or under the target'; }
+
+  const rate = Math.min(p.fill, 100) / 100 * L / BT;
+  let maxBack = 0; for (let i = 0; i < n; i++) maxBack = Math.max(maxBack, run.back[i]);
+  $('t4v').textContent = fmtGas(rate) + ' gas/s';
+  const q = p.fill > 100 ? `queue keeps growing, ${fmtDur(maxBack / L * BT)} wait by the end`
+    : maxBack > 0 ? `longest queue ${fmtDur(maxBack / L * BT)}` : 'no queue';
+  $('t4s').textContent = `≈ ${fmtInt(rate / p.txgas)} transfers/s · ${q}`;
+}
+
+function renderCharts() {
+  if (!R) return;
+  const { p, n, run, base } = R;
+  $('feeLegend').hidden = !base;
+  $('feeTitle').textContent = p.unit === 'usd' ? 'Cost of an ERC-20 transfer' : 'Base fee';
+  $('feeSub').textContent = (p.unit === 'usd' ? `Base fee × ${fmtInt(p.txgas)} gas, paid in USDC.` : 'Gwei per unit of gas.') + (p.scale === 'log' ? ' Log scale.' : ' Linear scale.');
+  feeChart(); trafChart();
+  const usd = w => fmtUsd(w * p.txgas / 1e18);
+  $('feePlot').setAttribute('aria-label', `Fee chart. Over ${p.minutes} minutes at ${p.fill}% full, the transfer cost goes from ${usd(run.fee[0])} to ${usd(run.fee[n - 1])}.`);
+  $('trafPlot').setAttribute('aria-label', `Block fullness chart. Blocks average ${p.fill}% full against a ${p.target}% target.`);
+  setHover(S.hover != null && S.hover < n ? S.hover : null);
+}
+
+function sampleIdx(n, pw) {
+  const step = Math.max(1, Math.floor(n / pw)), idx = [];
+  for (let i = 0; i < n; i += step) idx.push(i);
+  if (idx[idx.length - 1] !== n - 1) idx.push(n - 1);
+  return { idx, step };
+}
+
+function xAxis(s, xf, n, m, W, H) {
+  const xt = xTicks(n * BT);
+  for (const t of xt.out) {
+    const x = xf(Math.min(n - 1, t / BT));
+    const anchor = t === 0 ? 'start' : (W - m.r - x < 2 ? 'end' : 'middle');
+    s.push(`<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="${anchor}">${fmtTick(t, xt.st)}</text>`);
+  }
+  s.push(`<line class="refl" x1="${m.l}" x2="${W - m.r}" y1="${H - m.b}" y2="${H - m.b}"/>`);
+}
+
+function feeChart() {
+  const { p, n, run, base } = R, box = $('feePlot');
+  const W = Math.max(280, box.clientWidth), H = W < 560 ? 240 : 300;
+  const disp = w => p.unit === 'usd' ? w * p.txgas / 1e18 : w / 1e9;
+  const fmtY = p.unit === 'usd' ? tickUsd : tickGwei;
+  const valFmt = w => p.unit === 'usd' ? fmtUsd(disp(w)) : fmtGwei(w / 1e9) + ' gwei';
+  const lo0 = disp(p.minfee * 1e9), hi0 = disp(p.maxfee * 1e9);
+  const m = { l: p.unit === 'usd' ? 52 : 44, r: 14, t: 14, b: 28 };
+  const pw = W - m.l - m.r, ph = H - m.t - m.b;
+  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, run.fee[i], base ? base.fee[i] : 0);
+  let yf, ticks, top = Infinity;
+  const isLog = p.scale === 'log' && hi0 > lo0;
+  if (isLog) { const a = Math.log(lo0), b = Math.log(hi0); yf = v => m.t + ph * (1 - (Math.log(v) - a) / (b - a)); ticks = logTicks(lo0, hi0, ph); }
+  else { top = niceNum(Math.max(disp(peak) * 1.08, lo0 * 2)); yf = v => m.t + ph * (1 - v / top); ticks = linTicks(top); }
+  const xf = i => m.l + (n > 1 ? i / (n - 1) : 0) * pw;
+  const { idx } = sampleIdx(n, pw);
+  const path = arr => idx.map((i, k) => (k ? 'L' : 'M') + xf(i).toFixed(1) + ',' + yf(disp(arr[i])).toFixed(1)).join('');
+  const s = [`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">`];
+  for (const t of ticks) {
+    const y = yf(t);
+    s.push(`<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"/><text x="${m.l - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end">${fmtY(t)}</text>`);
+  }
+  const yLo = yf(lo0);
+  s.push(`<line class="refl" x1="${m.l}" x2="${W - m.r}" y1="${yLo.toFixed(1)}" y2="${yLo.toFixed(1)}"/>`);
+  s.push(`<text class="lbl" x="${m.l + 6}" y="${(yLo - 6).toFixed(1)}">Floor · ${valFmt(p.minfee * 1e9)}</text>`);
+  if (isLog || top >= hi0) {
+    const yHi = yf(hi0);
+    s.push(`<line class="refl" x1="${m.l}" x2="${W - m.r}" y1="${yHi.toFixed(1)}" y2="${yHi.toFixed(1)}"/>`);
+    s.push(`<text class="lbl" x="${m.l + 6}" y="${(yHi + 14).toFixed(1)}">Cap · ${valFmt(p.maxfee * 1e9)}</text>`);
+  }
+  xAxis(s, xf, n, m, W, H);
+  if (base) s.push(`<path class="ghost" d="${path(base.fee)}"/>`);
+  s.push(`<path class="fee" d="${path(run.fee)}"/>`);
+  const ex = xf(n - 1), ey = yf(disp(run.fee[n - 1]));
+  s.push(`<circle class="dot" cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="4"/>`);
+  const ly = ey - 10 < m.t + 10 ? ey + 20 : ey - 10;
+  s.push(`<text class="end" x="${(ex - 8).toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="end">${valFmt(run.fee[n - 1])}</text>`);
+  s.push(`<line id="feeX" class="xh" x1="0" x2="0" y1="${m.t}" y2="${m.t + ph}" visibility="hidden"/><circle id="feeDot" class="dot" r="4" visibility="hidden"/>`);
+  s.push('</svg>');
+  box.innerHTML = s.join('');
+  Object.assign(G, { m, pw, xf, yf, disp });
+}
+
+function trafChart() {
+  const { p, n, run } = R, box = $('trafPlot'), L = p.limit;
+  const W = Math.max(280, box.clientWidth), H = W < 560 ? 150 : 170;
+  const m = { l: G.m.l, r: G.m.r, t: 10, b: 28 }, pw = W - m.l - m.r, ph = H - m.t - m.b;
+  const xf = i => m.l + (n > 1 ? i / (n - 1) : 0) * pw, yf = v => m.t + ph * (1 - v / 100);
+  const s = [`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">`];
+  for (const t of [50, 100]) { const y = yf(t).toFixed(1); s.push(`<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}"/>`); }
+  for (const t of [0, 50, 100]) s.push(`<text x="${m.l - 8}" y="${(yf(t) + 3.5).toFixed(1)}" text-anchor="end">${t}%</text>`);
+  xAxis(s, xf, n, m, W, H);
+  const { idx, step } = sampleIdx(n, pw);
+  let topP = '', meanP = ''; const bot = [];
+  for (let j = 0, k = 0; j < n; j += step, k++) {
+    let mn = Infinity, mx = -Infinity, sum = 0, c = 0;
+    for (let i = j; i < Math.min(n, j + step); i++) { const v = run.used[i] / L * 100; if (v < mn) mn = v; if (v > mx) mx = v; sum += v; c++; }
+    const x = xf(Math.min(n - 1, j + (c - 1) / 2)).toFixed(1);
+    topP += (k ? 'L' : 'M') + x + ',' + yf(mx).toFixed(1);
+    bot.push(x + ',' + yf(mn).toFixed(1));
+    meanP += (k ? 'L' : 'M') + x + ',' + yf(sum / c).toFixed(1);
+  }
+  s.push(`<path class="band" d="${topP}L${bot.reverse().join('L')}Z"/><path class="mean" d="${meanP}"/>`);
+  const yt = yf(p.target).toFixed(1);
+  s.push(`<line class="ref" x1="${m.l}" x2="${W - m.r}" y1="${yt}" y2="${yt}"/>`);
+  s.push(`<path class="smooth" d="${idx.map((i, k) => (k ? 'L' : 'M') + xf(i).toFixed(1) + ',' + yf(run.smo[i] / L * 100).toFixed(1)).join('')}"/>`);
+  s.push(`<line id="trafX" class="xh" x1="0" x2="0" y1="${m.t}" y2="${m.t + ph}" visibility="hidden"/>`);
+  s.push('</svg>');
+  box.innerHTML = s.join('');
+}
+
+function renderHow() {
+  const { p } = R;
+  $('hA').textContent = 100 - p.alpha; $('hB').textContent = p.alpha;
+  $('hT').textContent = +p.target.toFixed(2); $('hK').textContent = +p.krate.toFixed(2);
+  $('hLo').textContent = fmtGwei(p.minfee); $('hHi').textContent = fmtGwei(p.maxfee);
+  $('hGas').textContent = fmtInt(p.txgas);
+}
+
+function renderTable() {
+  const { p, n, run, base } = R, L = p.limit, total = n * BT;
+  const st = [5, 10, 15, 30, 60, 120, 300].find(s => total / s <= 40) || 600;
+  const cols = ['Time', 'Per transfer', 'Base fee (gwei)'];
+  if (base) cols.push('No spikes, per transfer');
+  cols.push('Gas used', 'Smoothed', 'Queue wait');
+  const thead = $('thead'), tbody = $('tbody'); thead.textContent = ''; tbody.textContent = '';
+  const hr = document.createElement('tr');
+  for (const c of cols) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = c; hr.append(th); }
+  thead.append(hr);
+  for (let t = 0; t <= total + 1e-9; t += st) {
+    const i = Math.min(n - 1, Math.round(t / BT));
+    const vals = [fmtClock(t), fmtUsd(run.fee[i] * p.txgas / 1e18), fmtGwei(run.fee[i] / 1e9)];
+    if (base) vals.push(fmtUsd(base.fee[i] * p.txgas / 1e18));
+    vals.push(pct(run.used[i] / L), pct(run.smo[i] / L), run.back[i] > 0 ? fmtDur(run.back[i] / L * BT) : '0 s');
+    const tr = document.createElement('tr');
+    for (const v of vals) { const td = document.createElement('td'); td.textContent = v; tr.append(td); }
+    tbody.append(tr);
+  }
+}
+
+/* ---------- hover ---------- */
+function fillTip(i) {
+  const { p, run, base } = R, L = p.limit, tip = $('tip');
+  tip.textContent = '';
+  const head = document.createElement('div'); head.className = 't';
+  head.textContent = `${fmtClock(i * BT)} · block ${fmtInt(i + 1)}`; tip.append(head);
+  const usd = w => fmtUsd(w * p.txgas / 1e18), gw = w => fmtGwei(w / 1e9) + ' gwei';
+  const rows = p.unit === 'usd'
+    ? [['ln', 'Per transfer', usd(run.fee[i])], ['blank', 'Base fee', gw(run.fee[i])]]
+    : [['ln', 'Base fee', gw(run.fee[i])], ['blank', 'Per transfer', usd(run.fee[i])]];
+  if (base) rows.push(['ln ghost', 'No spikes', p.unit === 'usd' ? usd(base.fee[i]) : gw(base.fee[i])]);
+  rows.push(['sw', 'Gas used', pct(run.used[i] / L)], ['ln s2', 'Smoothed', pct(run.smo[i] / L)]);
+  if (run.back[i] > 0) rows.push(['blank', 'Queue', fmtDur(run.back[i] / L * BT) + ' wait']);
+  for (const [k, label, val] of rows) {
+    const r = document.createElement('div'); r.className = 'row';
+    const sp = document.createElement('span'), key = document.createElement('i'); key.className = k;
+    sp.append(key, document.createTextNode(label));
+    const b = document.createElement('b'); b.textContent = val;
+    r.append(sp, b); tip.append(r);
+  }
+}
+function setHover(i) {
+  S.hover = i;
+  const fx = $('feeX'), fd = $('feeDot'), tx = $('trafX'), tip = $('tip');
+  if (!fx || !tx) return;
+  if (i == null) { for (const e of [fx, fd, tx]) e.setAttribute('visibility', 'hidden'); tip.hidden = true; return; }
+  const x = G.xf(i).toFixed(1), y = G.yf(G.disp(R.run.fee[i])).toFixed(1);
+  for (const e of [fx, tx]) { e.setAttribute('x1', x); e.setAttribute('x2', x); e.setAttribute('visibility', 'visible'); }
+  fd.setAttribute('cx', x); fd.setAttribute('cy', y); fd.setAttribute('visibility', 'visible');
+  fillTip(i);
+  tip.hidden = false;
+  const card = $('charts').getBoundingClientRect(), pr = $('feePlot').getBoundingClientRect();
+  const cx = pr.left - card.left + +x, tw = tip.offsetWidth;
+  let left = cx + 14; if (left + tw > card.width - 8) left = cx - tw - 14;
+  tip.style.left = Math.max(8, left) + 'px';
+  tip.style.top = (pr.top - card.top + 6) + 'px';
+}
+function bindPlot(box) {
+  const at = e => { const r = box.getBoundingClientRect(); return Math.max(0, Math.min(R.n - 1, Math.round((e.clientX - r.left - G.m.l) / G.pw * (R.n - 1)))); };
+  box.addEventListener('pointermove', e => setHover(at(e)));
+  box.addEventListener('pointerdown', e => setHover(at(e)));
+  box.addEventListener('pointerleave', () => { if (document.activeElement !== box) setHover(null); });
+  box.addEventListener('focus', () => { if (S.hover == null) setHover(R.n - 1); });
+  box.addEventListener('blur', () => setHover(null));
+  box.addEventListener('keydown', e => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(e.key)) return;
+    e.preventDefault();
+    if (e.key === 'Escape') return setHover(null);
+    const st = Math.max(1, Math.round(R.n / 60)); let i = S.hover == null ? R.n - 1 : S.hover;
+    if (e.key === 'ArrowLeft') i -= st; else if (e.key === 'ArrowRight') i += st; else if (e.key === 'Home') i = 0; else i = R.n - 1;
+    setHover(Math.max(0, Math.min(R.n - 1, i)));
+  });
+}
+
+/* ---------- wiring ---------- */
+for (const id of ['fill', 'spike', 'limit']) $(id).addEventListener('input', update);
+document.querySelectorAll('input[type="radio"]').forEach(r => r.addEventListener('change', update));
+for (const id of Object.keys(DEF)) {
+  $(id).addEventListener('input', update);
+  $(id).addEventListener('change', () => { const v = readNum(id); $(id).value = String(id === 'alpha' || id === 'txgas' ? Math.round(v) : v); update(); });
+}
+$('reset').addEventListener('click', () => { for (const [id, v] of Object.entries(DEF)) $(id).value = v; update(); });
+$('reroll').addEventListener('click', () => { S.seed++; update(); });
+$('tbl').addEventListener('toggle', () => { if ($('tbl').open) renderTable(); });
+bindPlot($('feePlot')); bindPlot($('trafPlot'));
+let raf = 0;
+new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(renderCharts); }).observe($('charts'));
+update();
+})();
+</script>
+
+</body></html>
